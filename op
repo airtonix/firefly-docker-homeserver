@@ -56,10 +56,71 @@ is_compose_stack_partly_running () {
 ###
 # Backup volume
 #
+# Writes a tar file to the instances backup directory
+#
+# $1: docker-compose prefix (aka INSTANCE_ID)
+# $2: volume name
+# [$3]: backup filename (defaults to timestamp)
+#
 backup_volume () {
 
-    tar zcf /volume1/backups/container_backup_$backup_timestamp.tar.gz /volume1/docker/volumes/container_persistent_directory
+    [ -z "${1}" ] && {
+        echo "Missing 1: ID for instance."
+        exit 1
+    }
+    [ -z "${2}" ] && {
+        echo "Missing 2: VOLUME NAME for instance."
+        exit 1
+    }
 
+    INSTANCE_ID=$1
+    VOLUME_NAME=$2
+    VOLUME_IDENTIFIER="${INSTANCE_ID}_${VOLUME_NAME}"
+    BACKUP_FILENAME="${3:-slugify_timestamp}.tar"
+
+    echo "✍️ Backing up volume ${VOLUME_IDENTIFIER} 👉 ${BACKUP_FILENAME}"
+
+    docker run --rm \
+        --volume "${VOLUME_IDENTIFIER}:/backup" \
+        --volume "${HERE}/instances/${INSTANCE_ID}/backups/:/backup" \
+        ubuntu \
+        tar cvf "/backup/${BACKUP_FILENAME}" /backup
+
+    echo "🎉 Volume backup of ${VOLUME_IDENTIFIER} done"
+}
+
+###
+# Restore volume
+#
+restore_volume () {
+
+    [ -z "${1}" ] && {
+        echo "Missing 1: ID for instance."
+        exit 1
+    }
+    [ -z "${2}" ] && {
+        echo "Missing 2: VOLUME NAME for instance."
+        exit 1
+    }
+    [ -z "${3}" ] && {
+        echo "Missing 3: BACKUP_FILENAME for instance."
+        exit 1
+    }
+
+    INSTANCE_ID=$1
+    VOLUME_NAME=$2
+    VOLUME_IDENTIFIER="${INSTANCE_ID}_${VOLUME_NAME}"
+    BACKUP_FILENAME="${3}.tar"
+
+    echo "✍️ Restoring volume backup ${BACKUP_FILENAME} 👉 ${VOLUME_IDENTIFIER}"
+
+    docker run --rm \
+        --volume "${INSTANCE_ID}_${VOLUME_NAME}]:/backup" \
+        --volume "${HERE}/instances/${INSTANCE_ID}/backups/:/backup" \
+        ubuntu \
+        tar xvf "/backup/${BACKUP_FILENAME}.tar" -C /backup --strip 1
+
+    echo "🎉 Volume restore of ${VOLUME_IDENTIFIER} done"
 }
 
 
@@ -82,14 +143,15 @@ op_command_version () ( echo "Version: 0.0" )
 op_option_h () ( op_command_help "$@" )
 op_option_help () ( op_command_help "$@" )
 op_command_help () (
-    HELP=""
 
     case $1 in
         "new")
             dedent """
-            Creates a new instance
+                Creates a new instance
 
-            Usage: op [options] new <ID>
+                ⌨️  Usage
+
+                ./op new <ID>
             """
             exit 0
 
@@ -97,27 +159,36 @@ op_command_help () (
 
         "run")
             dedent """
-            Run an instance
+                Run an instance
 
-            Usage: op [options] run <ID>
+
+                ⌨️  Usage
+
+                ./op run <ID>
             """
             exit 0
         ;;
 
         "backup")
             dedent """
-            Backup an instance
+                Backup an instance
 
-            Usage: op [options] run <ID>
+
+                ⌨️  Usage
+
+                ./op run <ID>
             """
             exit 0
         ;;
 
         "restore")
             dedent """
-            Restore an instance
+                Restore an instance
 
-            Usage: op [options] run <ID>
+
+                ⌨️  Usage
+
+                ./op run <ID>
             """
             exit 0
         ;;
@@ -125,9 +196,11 @@ op_command_help () (
         *)
             dedent """
 
-                Usage: op [options] [command]
+                ⌨️  Usage
 
-                == Commands
+                $ op [command]
+
+                ❓ Commands
 
                 new     ID           - Creates a new instance <ID>
                 run     ID           - Run an instance <ID>
@@ -148,14 +221,14 @@ op_command_help () (
 op_command_new () {
 
     [ -z "${1}" ] && {
-        echo "Missing ID for new instance."
+        echo "🛑 Missing ID for new instance."
         op_option_help new
         exit 1
     }
     TARGET="${HERE}/instances/${1}";
 
     [ -d "${TARGET}" ] && {
-        echo "Directory ${TARGET} exists."
+        echo "🛑 Directory ${TARGET} exists."
         exit 1
     }
 
@@ -165,7 +238,7 @@ op_command_new () {
 
 op_command_run () {
    [ -z "${1}" ] && {
-        echo "Missing ID for instance."
+        echo "🛑 Missing ID for instance."
         op_option_help
         exit 1
     }
@@ -173,7 +246,7 @@ op_command_run () {
     COMPOSE="${TARGET}/docker-compose.yaml"
 
     [ ! -d "${TARGET}" ] && {
-        echo "Directory ${TARGET} does not exist."
+        echo "🛑 Directory ${TARGET} does not exist."
         exit 1
     }
 
@@ -181,7 +254,7 @@ op_command_run () {
 
     # stop any instances running
     if [ $IS_RUNNING -eq 1 ]; then
-        echo "Stopping running containers for $1"
+        echo "🐾 Stopping running containers for $1"
         docker-compose -f ${COMPOSE} stop
     fi
 
@@ -190,19 +263,19 @@ op_command_run () {
 
     # start any previously running instances again
     if [ $IS_RUNNING -eq 1 ]; then
-        echo "Restarting containers for $1"
+        echo "🐾 Restarting containers for $1"
         docker-compose -f ${COMPOSE} stop
     fi
 }
 
 op_command_restore () {
    [ -z "${1}" ] && {
-        echo "Missing ID for instance."
+        echo "🛑 Missing ID for instance."
         op_option_help restore
         exit 1
     }
    [ -z "${2}" ] && {
-        echo "Missing restore name for instance $1."
+        echo "🛑 Missing restore name for instance $1."
         op_option_help restore
         exit 1
     }
@@ -212,12 +285,12 @@ op_command_restore () {
     RESTORE_SOURCE="${HERE}/instances/backups/${2}";
 
     [ ! -d "${TARGET}" ] && {
-        echo "Directory ${TARGET} does not exist."
+        echo "🛑 Directory ${TARGET} does not exist."
         exit 1
     }
 
     [ ! -d "${RESTORE_SOURCE}" ] && {
-        echo "Restore source ${RESTORE_SOURCE} does not exist."
+        echo "🛑 Restore source ${RESTORE_SOURCE} does not exist."
         exit 1
     }
 
@@ -242,13 +315,13 @@ op_command_restore () {
 
 op_command_backup () {
     [ -z "${1}" ] && {
-        echo "Missing ID for instance."
+        echo "🛑 Missing ID for instance."
         op_option_help backup
         exit 1
     }
     [ -z "${2}" ] && {
         BACKUP_NAME="${2:-slugify_timestamp}"
-        echo "Using backup name "$BACKUP_NAME" for instance $1."
+        echo "ℹ️ Using backup name "$BACKUP_NAME" for instance $1."
     }
 
     TARGET="${HERE}/instances/${1}";
@@ -256,12 +329,12 @@ op_command_backup () {
     BACKUP_TARGET="${HERE}/instances/backups/$BACKUP_NAME";
 
     [ ! -d "${TARGET}" ] && {
-        echo "Directory ${TARGET} does not exist."
+        echo "🛑 Directory ${TARGET} does not exist."
         exit 1
     }
 
     [ ! -d "${RESTORE_SOURCE}" ] && {
-        echo "Restore source ${RESTORE_SOURCE} does not exist."
+        echo "🛑 Restore source ${RESTORE_SOURCE} does not exist."
         exit 1
     }
 
