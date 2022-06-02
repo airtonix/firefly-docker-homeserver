@@ -1,0 +1,283 @@
+#!/bin/bash
+HERE=$(
+    cd "${BASH_SOURCE[0]%/*}" || exit
+    pwd
+)
+. "${HERE}/core/lib/dispatch.sh"
+
+#
+# Utilities
+#
+
+###
+# Unindent print output
+#
+# Avoids having to mangle nicely indented code just so it prints nicely
+dedent() ( echo "$1" | sed 's/^[[:space:]]*//')
+
+
+###
+# Test if a docker-compose stack running?
+#
+is_compose_stack_running () {
+
+    # does the file exist
+    [ ! -f "${1}" ] && {
+        echo "Missing $1."
+        exit 1
+    }
+
+    # check if the instance is running
+    EXPECTED_CONTAINERS="$(docker-compose -f ${1} ps --services)"
+    RUNNING_CONTAINERS="$(docker-compose -f ${1} ps --services --filter "status=running")"
+
+    # is the list of running containers the same as the list of expected containers
+    [ "$RUNNING_CONTAINERS" -eq "$EXPECTED_CONTAINERS" ] && echo 1 || echo 0
+}
+
+###
+# Is part of the stack running?
+#
+is_compose_stack_partly_running () {
+
+    # does the file exist
+    [ ! -f "${1}" ] && {
+        echo "Missing $1."
+        exit 1
+    }
+
+    # check if the instance is running
+    RUNNING_CONTAINERS="$(docker-compose -f ${1} ps --services --filter "status=running")"
+
+    # is the variable empty?
+    [ -z "$RUNNING_CONTAINERS" ] && echo 1 || echo 0
+}
+
+###
+# Backup volume
+#
+backup_volume () {
+
+    tar zcf /volume1/backups/container_backup_$backup_timestamp.tar.gz /volume1/docker/volumes/container_persistent_directory
+
+}
+
+
+###
+# Create a slugerized timestamp
+#
+slugify_timestamp(){
+    date "+%Y.%m.%d-%H.%M.%S"
+}
+
+
+
+op_ () ( echo "No arguments provided." )
+op_call_ () ( echo "Invalid call '$@'" )
+
+op_option_v () ( op_option_version )
+op_option_version () ( op_command_version )
+op_command_version () ( echo "Version: 0.0" )
+
+op_option_h () ( op_command_help "$@" )
+op_option_help () ( op_command_help "$@" )
+op_command_help () (
+    HELP=""
+
+    case $1 in
+        "new")
+            dedent """
+            Creates a new instance
+
+            Usage: op [options] new <ID>
+            """
+            exit 0
+
+        ;;
+
+        "run")
+            dedent """
+            Run an instance
+
+            Usage: op [options] run <ID>
+            """
+            exit 0
+        ;;
+
+        "backup")
+            dedent """
+            Backup an instance
+
+            Usage: op [options] run <ID>
+            """
+            exit 0
+        ;;
+
+        "restore")
+            dedent """
+            Restore an instance
+
+            Usage: op [options] run <ID>
+            """
+            exit 0
+        ;;
+
+        *)
+            dedent """
+
+                Usage: op [options] [command]
+
+                == Commands
+
+                new     ID           - Creates a new instance <ID>
+                run     ID           - Run an instance <ID>
+                backup  ID [NAME]    - Backup an existing instance <ID> with [NAME] defaults to a timestamp
+                restore ID NAME      - Restore backups <NAME> for an instance <ID>
+
+            """
+            exit 0
+        ;;
+    esac
+
+ )
+
+
+
+#
+# clone the templates directory and find/replace all {{INSTANCE_ID}} with $1
+op_command_new () {
+
+    [ -z "${1}" ] && {
+        echo "Missing ID for new instance."
+        op_option_help new
+        exit 1
+    }
+    TARGET="${HERE}/instances/${1}";
+
+    [ -d "${TARGET}" ] && {
+        echo "Directory ${TARGET} exists."
+        exit 1
+    }
+
+    cp -R ./core/template "./instances/${1}";
+    grep -rl '{{INSTANCE_ID}}' $TARGET | xargs sed -i "s/{{INSTANCE_ID}}/$1/g"
+}
+
+op_command_run () {
+   [ -z "${1}" ] && {
+        echo "Missing ID for instance."
+        op_option_help
+        exit 1
+    }
+    TARGET="${HERE}/instances/${1}";
+    COMPOSE="${TARGET}/docker-compose.yaml"
+
+    [ ! -d "${TARGET}" ] && {
+        echo "Directory ${TARGET} does not exist."
+        exit 1
+    }
+
+    IS_RUNNING=$(is_compose_stack_running $COMPOSE)
+
+    # stop any instances running
+    if [ $IS_RUNNING -eq 1 ]; then
+        echo "Stopping running containers for $1"
+        docker-compose -f ${COMPOSE} stop
+    fi
+
+    # run backup
+    # https://hub.docker.com/r/loomchild/volume-backup
+
+    # start any previously running instances again
+    if [ $IS_RUNNING -eq 1 ]; then
+        echo "Restarting containers for $1"
+        docker-compose -f ${COMPOSE} stop
+    fi
+}
+
+op_command_restore () {
+   [ -z "${1}" ] && {
+        echo "Missing ID for instance."
+        op_option_help restore
+        exit 1
+    }
+   [ -z "${2}" ] && {
+        echo "Missing restore name for instance $1."
+        op_option_help restore
+        exit 1
+    }
+
+    TARGET="${HERE}/instances/${1}";
+    COMPOSE="${TARGET}/docker-compose.yaml";
+    RESTORE_SOURCE="${HERE}/instances/backups/${2}";
+
+    [ ! -d "${TARGET}" ] && {
+        echo "Directory ${TARGET} does not exist."
+        exit 1
+    }
+
+    [ ! -d "${RESTORE_SOURCE}" ] && {
+        echo "Restore source ${RESTORE_SOURCE} does not exist."
+        exit 1
+    }
+
+    # check if the instance is running
+    IS_RUNNING=$(is_compose_stack_running "${COMPOSE}")
+    if [ IS_RUNNING -eq 0 ]; then
+        docker-compose -d up
+    fi
+
+    # backup instance locally tagged as "date-pre-restore"
+    docker-compose -f "${COMPOSE}" exec \
+        backup \
+        /backup.sh \
+        "/backup/${slugify_timestamp}-${2}-pre_restore"
+
+    # run restore
+    docker-compose -f "${COMPOSE}" exec \
+        backup \
+        /restore.sh \
+        "/backup/${2}"
+}
+
+op_command_backup () {
+    [ -z "${1}" ] && {
+        echo "Missing ID for instance."
+        op_option_help backup
+        exit 1
+    }
+    [ -z "${2}" ] && {
+        BACKUP_NAME="${2:-slugify_timestamp}"
+        echo "Using backup name "$BACKUP_NAME" for instance $1."
+    }
+
+    TARGET="${HERE}/instances/${1}";
+    COMPOSE="${TARGET}/docker-compose.yaml";
+    BACKUP_TARGET="${HERE}/instances/backups/$BACKUP_NAME";
+
+    [ ! -d "${TARGET}" ] && {
+        echo "Directory ${TARGET} does not exist."
+        exit 1
+    }
+
+    [ ! -d "${RESTORE_SOURCE}" ] && {
+        echo "Restore source ${RESTORE_SOURCE} does not exist."
+        exit 1
+    }
+
+    # check if the instance is running
+    IS_RUNNING=$(is_compose_stack_running "${COMPOSE}")
+    if [ IS_RUNNING -eq 0 ]; then
+        docker-compose -d up
+    fi
+
+    # backup instance locally tagged as "date-pre-restore"
+    docker-compose -f "${COMPOSE}" exec \
+        backup \
+        /backup.sh \
+        "/backup/${BACKUP_NAME}"
+
+}
+
+# Dispatch the arguments
+dispatch op "$@"
