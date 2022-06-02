@@ -118,7 +118,7 @@ restore_volume () {
         --volume "${INSTANCE_ID}_${VOLUME_NAME}]:/backup" \
         --volume "${HERE}/instances/${INSTANCE_ID}/backups/:/backup" \
         ubuntu \
-        tar xvf "/backup/${BACKUP_FILENAME}.tar" -C /backup --strip 1
+        tar xvf "/backup/${BACKUP_FILENAME}" -C /backup --strip 1
 
     echo "🎉 Volume restore of ${VOLUME_IDENTIFIER} done"
 }
