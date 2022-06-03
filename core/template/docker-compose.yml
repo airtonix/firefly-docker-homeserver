@@ -1,52 +1,61 @@
 version: '3.3'
 
-  # Place your secret file somewhere on your host filesystem, with your password inside
-secrets:
-  mysql_password:
-    file: ./secrets/mysql_password
-  mysql_root_password:
-    file: ./secrets/mysql_root_password
-
 services:
   app:
     image: fireflyiii/core:latest
     restart: always
-    volumes:
-      - {{INSTANCE_ID}}_firefly_iii_upload:/var/www/html/storage/upload
-    env_file: .env
-    ports:
-      - 80:8080
     depends_on:
       - db
+    ports:
+      - 80:8080
+    volumes:
+      - firefly_iii_upload:/var/www/html/storage/upload
+    env_file:
+      - environment/app.env
 
   db:
+    hostname: fireflyiiidb
     image: mariadb
     restart: always
-    environment:
-      - MYSQL_USER=firefly
-      - MYSQL_DATABASE=firefly
-      - MYSQL_DATABASE=${DATABASE_NAME}
-      - MYSQL_ROOT_PASSWORD_FILE=/run/secrets/mysql_root_password
-      - MYSQL_PASSWORD_FILE=/run/secrets/mysql_password
     volumes:
-      - {{INSTANCE_ID}}_firefly_iii_db:/var/lib/mysql
+      - firefly_iii_db:/var/lib/mysql
+    env_file:
+      - environment/db.env
 
-  backup:
+  #
+  # fradelg/mysql-cron-backup
+  #
+  # scheduled backups of mysqldb dumps
+  #
+  backup-db:
     image: fradelg/mysql-cron-backup:dependabot-docker-master-alpine-3.16.0
     depends_on:
       - db
     volumes:
-      - ./mysql_backup:/backup
-    environment:
-      - MYSQL_HOST=db
-      - MYSQL_USER=firefly
-      - MYSQL_PASS_FILE=/run/secrets/mysql_root_password
-      - MAX_BACKUPS=15
-      - INIT_BACKUP=1
-      - CRON_TIME=0 * * * * # Every hour at minute 0
-      - GZIP_LEVEL=9 # High compression level
+      - ./backups:/backup
+    env_file:
+      - environment/db-backup.env
 
+
+  #
+  # offen/docker-volume-backup
+  #
+  # scheduled backups of docker volume contents
+  #
+  # https://hub.docker.com/r/offen/docker-volume-backup
+  # https://github.com/offen/docker-volume-backup/tree/main
+  backup-uploads:
+    image: offen/docker-volume-backup:v2
+    depends_on:
+      - app
+    volumes:
+      - firefly_iii_upload:/source/uploads
+      - ./environment:/source/environment
+      - ./docker-compose.yml:/source/docker-compose.yml
+      - ./backups:/backups
+    env_file:
+      - environment/volume-backup.env
 
 volumes:
-   {{INSTANCE_ID}}_firefly_iii_upload:
-   {{INSTANCE_ID}}_firefly_iii_db:
+   firefly_iii_upload:
+   firefly_iii_db:
