@@ -178,7 +178,7 @@ op_command_help () (
 
                 ⌨️  Usage
 
-                ./op run <ID>
+                ./op backup <ID>
             """
             exit 0
         ;;
@@ -189,7 +189,21 @@ op_command_help () (
 
                 ⌨️  Usage
 
-                ./op run <ID>
+                ./op restore 2022
+            """
+            exit 0
+        ;;
+
+        "remove" | "rm")
+            dedent """
+                Remove an instance
+
+                Only removes the docker containers, volumes are left alone.
+
+                ⌨️  Usage
+
+                ./op remove <ID>
+                ./op rm <ID>
             """
             exit 0
         ;;
@@ -206,6 +220,7 @@ op_command_help () (
                 run     ID           - Run an instance <ID>
                 backup  ID [NAME]    - Backup an existing instance <ID> with [NAME] defaults to a timestamp
                 restore ID NAME      - Restore backups <NAME> for an instance <ID>
+                remove  ID           - Remove docker containers for an instance <ID>
             """
             exit 0
         ;;
