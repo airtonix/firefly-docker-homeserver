@@ -44,7 +44,7 @@ services:
   #
   # https://hub.docker.com/r/offen/docker-volume-backup
   # https://github.com/offen/docker-volume-backup/tree/main
-  backup-uploads:
+  backup-files:
     image: offen/docker-volume-backup:v2
     depends_on:
       - app
@@ -52,7 +52,7 @@ services:
       - firefly_iii_upload:/source/uploads
       - ./environment:/source/environment
       - ./docker-compose.yml:/source/docker-compose.yml
-      - ./backups:/backups
+      - ./backups:/backup
     env_file:
       - environment/volume-backup.env
 

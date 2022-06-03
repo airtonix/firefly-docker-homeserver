@@ -5,6 +5,7 @@ HERE=$(
 )
 . "${HERE}/core/lib/dispatch.sh"
 
+VERSION=$(cat ./VERSION);
 #
 # Utilities
 #
@@ -67,7 +68,6 @@ is_compose_stack_partly_running () {
 # [$3]: backup filename (defaults to timestamp)
 #
 backup_volume () {
-
     [ -z "${1}" ] && {
         echo "Missing 1: ID for instance."
         exit 1
@@ -146,6 +146,7 @@ op_command_version () ( echo "Version: 0.0" )
 op_option_h () ( op_command_help "$@" )
 op_option_help () ( op_command_help "$@" )
 op_command_help () (
+    echo "Operations v${VERSION}";
 
     case $1 in
         "new")
@@ -164,7 +165,6 @@ op_command_help () (
             dedent """
                 Run an instance
 
-
                 ⌨️  Usage
 
                 ./op run <ID>
@@ -175,7 +175,6 @@ op_command_help () (
         "backup")
             dedent """
                 Backup an instance
-
 
                 ⌨️  Usage
 
@@ -188,7 +187,6 @@ op_command_help () (
             dedent """
                 Restore an instance
 
-
                 ⌨️  Usage
 
                 ./op run <ID>
@@ -198,7 +196,6 @@ op_command_help () (
 
         *)
             dedent """
-
                 ⌨️  Usage
 
                 $ ./op [command]
@@ -209,7 +206,6 @@ op_command_help () (
                 run     ID           - Run an instance <ID>
                 backup  ID [NAME]    - Backup an existing instance <ID> with [NAME] defaults to a timestamp
                 restore ID NAME      - Restore backups <NAME> for an instance <ID>
-
             """
             exit 0
         ;;
@@ -293,13 +289,25 @@ op_command_restore () {
     docker-compose -f "${COMPOSE}" exec \
         backup \
         /backup.sh \
-        "/backup/${slugify_timestamp}-${2}-pre_restore"
+        "/backup/${2}-db__pre_restore-${slugify_timestamp}"
 
-    # run restore
+    # backup files locally.
+    docker-compose -f "${COMPOSE}" exec \
+        backup-files \
+        backup \
+        "/backup/${2}-files__pre-restore-${slugify_timestamp}"
+
+    # run db restore
     docker-compose -f "${COMPOSE}" exec \
         backup \
         /restore.sh \
-        "/backup/${2}"
+        "/backup/${2}-db"
+
+    # run files restore
+    docker-compose -f "${COMPOSE}" exec \
+        backup \
+        /restore.sh \
+        "/backup/${2}-files"
 }
 
 op_command_backup () {
@@ -328,11 +336,17 @@ op_command_backup () {
         docker-compose -d up
     }
 
-    # backup instance locally tagged as "date-pre-restore"
+    # backup db dump locally.
     docker-compose -f "${COMPOSE}" exec \
-        backup \
+        backup-db \
         /backup.sh \
-        "/backup/${BACKUP_NAME}"
+        "/backup/${BACKUP_NAME}-db"
+
+    # backup files locally.
+    docker-compose -f "${COMPOSE}" exec \
+        backup-files \
+        backup \
+        "/backup/${BACKUP_NAME}-files"
 }
 
 op_command_rm () { op_command_remove "$@"; }
